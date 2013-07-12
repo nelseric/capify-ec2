@@ -2,13 +2,13 @@ require File.join(File.dirname(__FILE__), '../capify-ec2')
 require 'colored'
 require 'pp'
 
-Capistrano::Configuration.instance(:must_exist).load do  
+Capistrano::Configuration.instance(:must_exist).load do
   def capify_ec2
     @capify_ec2 ||= CapifyEc2.new(fetch(:ec2_config, 'config/ec2.yml'))
   end
 
   namespace :ec2 do
-    
+
     desc "Prints out all ec2 instances. index, name, instance_id, size, DNS/IP, region, tags"
     task :status do
       capify_ec2.display_instances
@@ -38,13 +38,17 @@ Capistrano::Configuration.instance(:must_exist).load do
 
     desc "Allows ssh to instance by id. cap ssh <INSTANCE NAME>"
     task :ssh do
-      server = variables[:logger].instance_variable_get("@options")[:actions][1]
-      
+      if variables[:logger].instance_variable_get("@options")[:actions][1] = "ec2:ssh"
+        server = variables[:logger].instance_variable_get("@options")[:actions][2]
+      else
+        server = variables[:logger].instance_variable_get("@options")[:actions][1]
+      end
+
       if server
         instance = numeric?(server) ? capify_ec2.desired_instances[server.to_i] : capify_ec2.get_instance_by_name(server)
 
         if instance and instance.contact_point then
-          port = ssh_options[:port] || 22 
+          port = ssh_options[:port] || 22
           command = "ssh -p #{port} #{user}@#{instance.contact_point}"
           puts "Running `#{command}`"
           exec(command)
@@ -64,7 +68,7 @@ Capistrano::Configuration.instance(:must_exist).load do
     after "deploy", "ec2:register_instance"
     after "deploy:rollback", "ec2:register_instance"
   end
-    
+
   desc "Deploy to servers one at a time."
   task :rolling_deploy do
     puts "[Capify-EC2] Performing rolling deployment..."
@@ -105,7 +109,7 @@ Capistrano::Configuration.instance(:must_exist).load do
           role a_role, server_dns, all_options[a_role][server_dns]
           is_load_balanced = true if all_options[a_role][server_dns][:load_balanced]
         end
-        
+
         puts "[Capify-EC2]"
         puts "[Capify-EC2] Beginning deployment to #{instance_dns_with_name_tag(server_dns)} with #{server_roles.count > 1 ? 'roles' : 'role'} '#{server_roles.join(', ')}'...".bold
 
@@ -117,7 +121,7 @@ Capistrano::Configuration.instance(:must_exist).load do
         top.deploy.default
 
         server_roles.each do |a_role|
-        
+
           # If healthcheck(s) are defined for this role, run them.
           if all_options[a_role][server_dns][:healthcheck]
             healthchecks_for_role = [ all_options[a_role][server_dns][:healthcheck] ].flatten
@@ -130,9 +134,9 @@ Capistrano::Configuration.instance(:must_exist).load do
               options[:timeout] = healthcheck_for_role[:timeout] ||= 60
 
               healthcheck = capify_ec2.instance_health_by_url( server_dns,
-                                                               healthcheck_for_role[:port], 
-                                                               healthcheck_for_role[:path], 
-                                                               healthcheck_for_role[:result], 
+                                                               healthcheck_for_role[:port],
+                                                               healthcheck_for_role[:path],
+                                                               healthcheck_for_role[:result],
                                                                options )
               if healthcheck
                 puts "[Capify-EC2] Healthcheck #{i+1} of #{healthchecks_for_role.size} for role '#{a_role}' successful.".green.bold
@@ -154,7 +158,7 @@ Capistrano::Configuration.instance(:must_exist).load do
             raise CapifyEC2RollingDeployError.new("ELB registration timeout exceeded", server_dns)
           end
         end
-   
+
         puts "[Capify-EC2] Deployment successful to #{instance_dns_with_name_tag(server_dns)}.".green.bold
         successful_deploys << server_dns
 
@@ -179,7 +183,7 @@ Capistrano::Configuration.instance(:must_exist).load do
       exit 1
     else
       puts "[Capify-EC2]"
-      puts "[Capify-EC2] Rolling deployment completed.".green.bold  
+      puts "[Capify-EC2] Rolling deployment completed.".green.bold
 
       rolling_deploy_status(all_servers, successful_deploys, failed_deploys)
     end
@@ -189,11 +193,11 @@ Capistrano::Configuration.instance(:must_exist).load do
     puts "[Capify-EC2]"
     puts "[Capify-EC2]   Successful servers:"
     format_rolling_deploy_results( all_servers, successful_deploys )
-     
+
     puts "[Capify-EC2]"
     puts "[Capify-EC2]   Failed servers:"
     format_rolling_deploy_results( all_servers, failed_deploys )
-    
+
     puts "[Capify-EC2]"
     puts "[Capify-EC2]   Pending servers:"
     pending_deploys = (all_servers.keys - successful_deploys) - failed_deploys
@@ -202,10 +206,10 @@ Capistrano::Configuration.instance(:must_exist).load do
 
   def ec2_roles(*roles)
     server_name = variables[:logger].instance_variable_get("@options")[:actions].first unless variables[:logger].instance_variable_get("@options")[:actions][1].nil?
-    
+
     if !server_name.nil? && !server_name.empty?
       named_instance = capify_ec2.get_instance_by_name(server_name)
-  
+
       task named_instance.name.to_sym do
         remove_default_roles
         server_address = named_instance.contact_point
@@ -214,8 +218,8 @@ Capistrano::Configuration.instance(:must_exist).load do
           roles = named_instance.roles
         else
           roles = [named_instance.tags[ @ec2_config[:aws_roles_tag] ]].flatten
-        end    
-        
+        end
+
         roles.each do |role|
           define_role({:name => role, :options => {:on_no_matching_servers => :continue}}, named_instance)
         end
@@ -223,10 +227,10 @@ Capistrano::Configuration.instance(:must_exist).load do
     end
     roles.each {|role| ec2_role(role)}
   end
-  
+
   def ec2_role(role_name_or_hash)
     role = role_name_or_hash.is_a?(Hash) ? role_name_or_hash : {:name => role_name_or_hash, :options => {}, :variables => {}}
-        
+
     instances = capify_ec2.get_instances_by_role(role[:name])
     if role[:options] && role[:options].delete(:default)
       instances.each do |instance|
@@ -241,7 +245,7 @@ Capistrano::Configuration.instance(:must_exist).load do
 
     define_role_roles(role, instances)
     define_instance_roles(role, instances)
-  end  
+  end
 
   def define_regions(region, role)
     instances = []
@@ -272,29 +276,29 @@ Capistrano::Configuration.instance(:must_exist).load do
       instances.each do |instance|
         define_role(role, instance)
       end
-    end 
+    end
   end
 
   def define_role(role, instance)
     options     = role[:options] || {}
     variables   = role[:variables] || {}
 
-    cap_options = options.inject({}) do |cap_options, (key, value)| 
+    cap_options = options.inject({}) do |cap_options, (key, value)|
       cap_options[key] = true if value.to_s == instance.name
       cap_options
-    end 
+    end
 
     ec2_options = instance.tags[capify_ec2.ec2_config[:aws_options_tag]] || ""
     ec2_options.split(%r{,\s*}).compact.each { |ec2_option|  cap_options[ec2_option.to_sym] = true }
 
-    variables.each do |key, value| 
+    variables.each do |key, value|
       set key, value
       cap_options[key] = value unless cap_options.has_key? key
     end
 
     role role[:name].to_sym, instance.contact_point, cap_options
   end
-  
+
   def numeric?(object)
     true if Float(object) rescue false
   end
@@ -308,9 +312,9 @@ Capistrano::Configuration.instance(:must_exist).load do
         "#{singular}s"
     end
   end
-  
-  def remove_default_roles	 	
+
+  def remove_default_roles
     roles.reject! { true }
   end
-  
+
 end
