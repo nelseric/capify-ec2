@@ -38,7 +38,7 @@ Capistrano::Configuration.instance(:must_exist).load do
 
     desc "Allows ssh to instance by id. cap ssh <INSTANCE NAME>"
     task :ssh do
-      if variables[:logger].instance_variable_get("@options")[:actions][1] = "ec2:ssh"
+      if variables[:logger].instance_variable_get("@options")[:actions][1] == "ec2:ssh"
         server = variables[:logger].instance_variable_get("@options")[:actions][2]
       else
         server = variables[:logger].instance_variable_get("@options")[:actions][1]
